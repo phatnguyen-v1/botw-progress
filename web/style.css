@@ -89,6 +89,9 @@ select, input[type=search] {
 .layers button.on { background: var(--line); color: var(--text); }
 .layers button[hidden] { display: none; }
 .layers .find-link { border-left: 1px solid var(--line); border-radius: 0 999px 999px 0; }
+.layers .play-game { color: var(--accent); }
+.game-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.game-row[hidden] { display: none; }
 .mk.player img { transform: none; filter: drop-shadow(0 0 4px rgba(255, 214, 64, .9)); }
 /* live from the running game (/api/live): a cyan glow, and short glides between the 4-a-second updates */
 .mk.player.live img { filter: drop-shadow(0 0 5px rgba(90, 220, 255, .95)); transition: transform .25s linear; }

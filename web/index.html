@@ -80,6 +80,7 @@
     <div id="share-msg" class="err" hidden></div>
   </div>
   <nav class="layers" id="layers">
+    <button id="play-game" class="play-game" title="Start Savage Wind, and follow Link live" data-i18n-title="game.playTitle" hidden><span data-i18n="game.playShort">▶ Play</span></button>
     <button id="find-link" class="find-link" title="Where Link was when the game last saved" data-i18n-title="link.title" hidden><img src="/icons/player.svg" data-icon="player" alt=""><span data-i18n="link">Link</span></button>
   </nav>
   <button id="panel-toggle" class="panel-toggle" aria-label="Toggle panel" data-i18n-aria-label="panel.toggle">☰</button>
@@ -129,7 +130,10 @@
     <div class="setup-step" id="live-step">
       <h3 data-i18n="live.title">Live position</h3>
       <label class="switch"><input type="checkbox" id="live-on"> <span data-i18n="live.switch">Follow Link live while you play</span></label>
-      <p class="muted small" data-i18n-html="live.hint">Needs Savage Wind started with <code>SAVAGEWIND_CONTROL=7777</code>. On Windows, start it from a <code>.cmd</code> file next to <code>savagewind.exe</code> with the lines <code>set "SAVAGEWIND_CONTROL=7777"</code> and <code>start "" savagewind.exe</code>. The game then answers on a local port (this PC only), and this app asks it where Link is four times a second. It only ever asks for the position and never changes anything in the game. The arrow turns the way the camera looks. Without it, the map shows where you were at the last save.</p>
+      <p class="muted small" data-i18n-html="live.hint">The map follows Link while you play when Savage Wind runs with its control port on. Easiest: start the game with <b>Play</b> (here or at the top of the map): the app starts it with <code>SAVAGEWIND_CONTROL=7777</code> set for that run only, and nothing in the game or its folder changes. Or start it yourself from a <code>.cmd</code> file with the lines <code>set "SAVAGEWIND_CONTROL=7777"</code> and <code>start "" savagewind.exe</code>. The game then answers on a local port (this PC only), and this app asks it where Link is four times a second. It only ever asks for the position and never changes anything in the game. While the game runs this way, other programs on this PC could use that port too, so use it when you want the live map. The arrow turns the way the camera looks. Without it, the map shows where you were at the last save.</p>
+      <div class="game-row"><button id="game-play" class="btn primary" data-i18n="game.play">▶ Play with live map</button>
+        <button id="game-choose" class="btn" data-i18n="game.choose">Choose game…</button></div>
+      <div id="game-msg" class="muted small"></div>
       <div id="live-msg" class="muted small"></div>
     </div>
 

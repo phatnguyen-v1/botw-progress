@@ -51,9 +51,16 @@ delete that folder to reset.
 **On your phone:** click the phone button at the bottom right of the map, *Turn on*, and scan the QR code. Only
 phones and tablets on the **same Wi-Fi or network** as your PC can open it. They get the same map, read-only.
 
-**Live position:** the map normally shows where Link was at the last save. Start Savage Wind with the environment
-variable `SAVAGEWIND_CONTROL=7777` and the arrow follows Link while you play, turned the way the camera looks. On
-Windows, put a file like `savagewind-live.cmd` next to `savagewind.exe`:
+**Live position:** the map normally shows where Link was at the last save. Start Savage Wind with **▶ Play** (at the
+top of the map, or **⚙** → *Live position*) and the arrow follows Link while you play, turned the way the camera
+looks. The app starts the game with the environment variable `SAVAGEWIND_CONTROL=7777` for that run only: nothing in
+the game or its folder changes, and closing the map leaves the game running. It starts `savagewind.exe` from the game
+folder; if that isn't where the exe is (a separate data folder, or a build that needs its own launcher), pick
+`savagewind.exe` or the `.cmd` you start it with in *Choose game…*. The page never tells the app which file to start;
+only that file window does.
+
+Starting the game yourself works too, with the same variable. On Windows, put a file like `savagewind-live.cmd` next
+to `savagewind.exe`:
 
 ```bat
 @echo off

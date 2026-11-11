@@ -399,6 +399,8 @@ async function pollLive() {
 function renderLiveStatus() {
   const el = $('#live-msg');
   if (el) el.textContent = t('live.status.' + state.liveReason);
+  if (state.live) state.gameStarting = false;
+  if (typeof renderGame === 'function') renderGame();
 }
 
 function renderLegend() {
@@ -784,6 +786,43 @@ $('#update-on').onchange = async e => {
 };
 if (!REMOTE) { setTimeout(checkUpdate, 4000); setInterval(checkUpdate, 30 * 60 * 1000); }
 
+// ---------- Play: start Savage Wind with its control port (server.Game); the page never says which file
+state.game = null;
+async function loadGame() {
+  if (REMOTE) return;
+  try { state.game = await getJSON('/api/game'); } catch { state.game = null; }
+  renderGame();
+}
+function renderGame() {
+  const g = state.game;
+  const idle = !state.live && state.liveReason !== 'not_in_world';
+  $('#play-game').hidden = REMOTE || !g || !g.exe || !state.liveOn || !idle || !!state.gameStarting;
+  $('#game-play').disabled = !g || !g.exe || !!state.gameStarting;
+  if (state.gameMsg) $('#game-msg').textContent = state.gameMsg;
+  else $('#game-msg').textContent = !g ? '' : g.exe ? t('game.exe', { path: g.exe }) : t('game.none');
+}
+async function playGame() {
+  state.gameStarting = true; state.gameMsg = t('game.starting'); renderGame();
+  try {
+    state.game = await post('/api/game/start', {});
+    if (!state.liveOn) { state.liveOn = true; store.set('live', true); $('#live-on').checked = true; }
+    pollLive();
+    setTimeout(() => { state.gameStarting = false; state.gameMsg = ''; renderGame(); }, 20000);   // time to load
+  } catch (e) {
+    state.gameStarting = false; state.gameMsg = tMsg(e.message);
+  }
+  renderGame();
+}
+$('#play-game').onclick = playGame;
+$('#game-play').onclick = playGame;
+$('#game-choose').onclick = async () => {
+  state.gameMsg = t('setup.browseNote'); renderGame();
+  try { state.game = await post('/api/game/choose', {}); state.gameMsg = ''; }
+  catch (e) { state.gameMsg = tMsg(e.message); }
+  renderGame();
+};
+if (REMOTE) $('#game-play').closest('.game-row').hidden = true;
+
 // ---------- Live position switch (Settings)
 $('#live-on').checked = state.liveOn;
 $('#live-on').onchange = e => {
@@ -851,6 +890,7 @@ async function openSetup(firstRun) {
     setup.current = st.ready && st.install ? st.install.path : null;
     $('#lan-step').hidden = firstRun;
     $('#live-step').hidden = firstRun;
+    if (!firstRun) loadGame();
     if (!firstRun) getJSON('/api/lan').then(renderLan).catch(() => {});
     checkUpdate();
     renderLang(st.lang);
@@ -964,4 +1004,5 @@ $('#quit').onclick = async () => {
   }
   setTimeout(poll, POLL_MS);
   pollLive();
+  loadGame();
 })();

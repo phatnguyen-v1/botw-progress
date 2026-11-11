@@ -655,11 +655,15 @@ class State:
 _dialog_lock = threading.Lock()
 
 
-def _desktop_folder_dialog(start, title):
-    """Linux: the desktop's own folder picker through zenity (GNOME and most others) or kdialog (KDE, Steam
-    Deck). Returns (shown, path): shown is False when neither could open a window."""
-    tools = [['zenity', '--file-selection', '--directory', f'--title={title}', f'--filename={start.rstrip("/")}/'],
-             ['kdialog', '--title', title, '--getexistingdirectory', start]]
+def _desktop_folder_dialog(start, title, directory=True):
+    """Linux: the desktop's own folder (or file) picker through zenity (GNOME and most others) or kdialog (KDE,
+    Steam Deck). Returns (shown, path): shown is False when neither could open a window."""
+    if directory:
+        tools = [['zenity', '--file-selection', '--directory', f'--title={title}', f'--filename={start.rstrip("/")}/'],
+                 ['kdialog', '--title', title, '--getexistingdirectory', start]]
+    else:
+        tools = [['zenity', '--file-selection', f'--title={title}', f'--filename={start.rstrip("/")}/'],
+                 ['kdialog', '--title', title, '--getopenfilename', start]]
     if 'KDE' in os.environ.get('XDG_CURRENT_DESKTOP', '').upper():
         tools.reverse()
     for cmd in tools:
@@ -703,6 +707,127 @@ def pick_folder(initial=None):
         finally:
             root.destroy()
         return chosen or None
+
+
+def pick_game_file(initial=None):
+    """The system's file picker for the game: savagewind.exe, or on Windows a .cmd/.bat that starts it (a dev build
+    that needs its own PATH, say). Returns a path or None."""
+    start = initial or str(Path.home())
+    title = f'Select {GAME_EXE}' + (' or the .cmd you start it with' if WINDOWS else '')
+    with _dialog_lock:
+        if not WINDOWS:
+            shown, chosen = _desktop_folder_dialog(start, title, directory=False)
+            if shown:
+                return chosen
+        try:
+            import tkinter
+            from tkinter import filedialog
+            root = tkinter.Tk()
+        except Exception as e:
+            if WINDOWS:
+                raise
+            raise ValueError(f'Could not open a file window here ({e}). Install zenity or kdialog.')
+        root.withdraw()
+        root.attributes('-topmost', True)
+        kinds = [('Savage Wind', 'savagewind.exe *.cmd *.bat'), ('All files', '*.*')] if WINDOWS else []
+        try:
+            chosen = filedialog.askopenfilename(parent=root, initialdir=start, title=title, filetypes=kinds)
+        finally:
+            root.destroy()
+        return chosen or None
+
+
+# ---------------------------------------------------------------- starting the game with the live map
+
+LAUNCHERS = ('.cmd', '.bat') if WINDOWS else ()
+
+
+def game_file_ok(path):
+    """Only Savage Wind's own binary, or (Windows) a .cmd/.bat launcher the player picked in the file window."""
+    p = Path(path)
+    return p.is_file() and (p.name.lower() in GAME_EXES or p.suffix.lower() in LAUNCHERS)
+
+
+def game_process_running():
+    """Is a Savage Wind already running (with or without its control port)?"""
+    try:
+        if WINDOWS:
+            r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq savagewind.exe', '/NH', '/FO', 'CSV'],
+                               capture_output=True, text=True, timeout=5,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            return 'savagewind.exe' in r.stdout.lower()
+        r = subprocess.run(['pgrep', '-x', 'savagewind'], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+class Game:
+    """Start Savage Wind from the map with SAVAGEWIND_CONTROL=<port> in its environment, so the map can follow
+    Link (see LiveGame) without a launcher script. Nothing in the game or its folder changes: the variable only
+    lives in the environment of the process started here. The file started is the one the player picked in the
+    file window, or savagewind.exe in the game folder; the page can only ask to start it, never say what."""
+    lock = threading.Lock()
+    proc = None
+
+    @staticmethod
+    def exe(state):
+        chosen = state.cfg.get('game_exe')
+        if chosen and game_file_ok(chosen):
+            return Path(chosen)
+        install = (state.install or {}).get('path')
+        if install:
+            for name in GAME_EXES:
+                if (Path(install) / name).is_file():
+                    return Path(install) / name
+        return None
+
+    @classmethod
+    def status(cls, state):
+        exe = cls.exe(state)
+        with cls.lock:
+            started = cls.proc is not None and cls.proc.poll() is None
+        return {'exe': str(exe) if exe else None, 'chosen': bool(state.cfg.get('game_exe')),
+                'started': started, 'port': state.live.port}
+
+    @classmethod
+    def choose(cls, state):
+        exe = cls.exe(state)
+        chosen = pick_game_file(str(exe.parent) if exe else (state.install or {}).get('path'))
+        if chosen:
+            if not game_file_ok(chosen):
+                raise ValueError(f'Pick {GAME_EXE}' + (' or a .cmd/.bat that starts it.' if WINDOWS else '.'))
+            with state.lock:
+                state.cfg['game_exe'] = str(Path(chosen))
+                save_config(state.cfg)
+        return cls.status(state)
+
+    @classmethod
+    def start(cls, state):
+        exe = cls.exe(state)
+        if not exe:
+            raise ValueError(f'{GAME_EXE} not found: choose it in Settings -> Live position.')
+        with cls.lock:
+            if (cls.proc is not None and cls.proc.poll() is None) or game_process_running():
+                raise ValueError('Savage Wind is already running. To follow Link live, close it and start it '
+                                 'here again.')
+            env = dict(os.environ)
+            env['SAVAGEWIND_CONTROL'] = str(state.live.port)
+            install = (state.install or {}).get('path')
+            # a binary outside the data folder this map reads: point the game at that folder, as a launcher would
+            if exe.name.lower() in GAME_EXES and install and Path(install) != exe.parent \
+                    and 'SAVAGEWIND_DATA_ROOT' not in env:
+                env['SAVAGEWIND_DATA_ROOT'] = install
+            cmd = ['cmd.exe', '/c', str(exe)] if exe.suffix.lower() in LAUNCHERS else [str(exe)]
+            # its own process (no console window for a .cmd): closing the map leaves the game running
+            kw = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS} if WINDOWS                 else {'start_new_session': True}
+            print(f'Starting {exe} with SAVAGEWIND_CONTROL={state.live.port}')
+            try:
+                cls.proc = subprocess.Popen(cmd, cwd=str(exe.parent), env=env, stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+            except OSError as e:
+                raise ValueError(f'Could not start {exe.name}: {e}')
+        return cls.status(state)
 
 
 # ---------------------------------------------------------------- HTTP
@@ -859,6 +984,8 @@ def make_handler(state, server_ref, remote=False):
                     self.send_json({'error': 'setup required', 'setup': True}, 409)
                 elif p == '/api/live':   # Link's position right now (Savage Wind's control port, `pos` only)
                     self.send_json(state.live.status())
+                elif p == '/api/game':   # which game the Play button starts (not for phones)
+                    self.send_json(Game.status(state))
                 elif p == '/api/slots':
                     self.send_json({'save_dir': None if remote else str(state.save_dir), 'latest': state.latest_slot(),
                                     'slots': state.slots(),
@@ -917,6 +1044,10 @@ def make_handler(state, server_ref, remote=False):
                 elif p == '/api/setup/apply':
                     info = state.start_setup(body.get('path', ''))
                     self.send_json({'ok': True, 'info': info})
+                elif p == '/api/game/choose':   # file window on this PC; the page never sends a path
+                    self.send_json(Game.choose(state))
+                elif p == '/api/game/start':
+                    self.send_json(Game.start(state))
                 elif p == '/api/quit':
                     self.send_json({'ok': True})
                     threading.Thread(target=lambda: (time.sleep(0.3), Ui.quit(server_ref[0])), daemon=True).start()
