@@ -111,6 +111,8 @@ select, input[type=search] {
 .mk.player.live img { filter: drop-shadow(0 0 5px rgba(90, 220, 255, .95)); transition: transform .25s linear; }
 .leaflet-marker-icon.mk.player.live { transition: transform .25s linear; }
 .leaflet-zoom-anim .leaflet-marker-icon.mk.player.live { transition: none; }
+/* while the map itself moves (fly to Link, zoom, drag) Leaflet places the marker every frame: no glide, or it lags */
+.map-moving .leaflet-marker-icon.mk.player.live { transition: none; }
 .panel-toggle { display: none; }
 .panel-close, .panel-scrim { display: none; }
 

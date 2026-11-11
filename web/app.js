@@ -699,6 +699,10 @@ function focusLink() {
 }
 $('#find-link').onclick = focusLink;
 map.on('dragstart', () => setFollow(false));
+// (style.css: the live arrow's glide is off while the map moves, so it doesn't trail behind during a fly or zoom;
+// follow mode's own pans pass noMoveStart and keep it)
+map.on('movestart zoomstart', () => map.getContainer().classList.add('map-moving'));
+map.on('moveend zoomend', () => map.getContainer().classList.remove('map-moving'));
 document.querySelectorAll('#mode button').forEach(b => {
   b.classList.toggle('on', b.dataset.mode === state.mode);
   b.onclick = () => {
