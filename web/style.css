@@ -89,7 +89,21 @@ select, input[type=search] {
 .layers button.on { background: var(--line); color: var(--text); }
 .layers button[hidden] { display: none; }
 .layers .find-link { border-left: 1px solid var(--line); border-radius: 0 999px 999px 0; }
+/* the game chip next to Link: ▶ Play / Starting… / Load a save / ● Live */
 .layers .play-game { color: var(--accent); }
+.layers .play-game[data-state="starting"] { color: var(--muted); cursor: default; }
+.layers .play-game[data-state="open"] { color: #e3c27a; }
+.layers .play-game[data-state="live"] { color: #5adcff; }
+.layers .play-game[data-state="live"] span::before, .layers .play-game[data-state="open"] span::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  background: currentColor; vertical-align: 1px; }
+.layers .play-game[data-state="live"] span::before { animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: .35; } }
+.layers .find-link.on { background: var(--line); color: #5adcff; }
+.toast { position: absolute; z-index: 900; top: 56px; left: 50%; transform: translateX(-50%); max-width: min(460px, calc(100vw - 32px));
+  background: rgba(18,22,26,.95); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; text-align: center; }
+.toast[hidden] { display: none; }
+@media (max-width: 760px) { .toast { top: 100px; } }
 .game-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 .game-row[hidden] { display: none; }
 .mk.player img { transform: none; filter: drop-shadow(0 0 4px rgba(255, 214, 64, .9)); }

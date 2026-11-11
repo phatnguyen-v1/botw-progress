@@ -337,10 +337,12 @@ function renderPlayer() {
   const p = playerPos();
   $('#find-link').hidden = !p;
   const key = p && layerOf(p.y) === state.layer ? (state.live ? 'live' : 'saved') : '';
+  if (!state.live) setFollow(false);
   if (key && key === playerMarkerKey && playerMarker) {   // same marker: just move it (live updates, 4 a second)
     playerMarker.setLatLng(toLatLng(p));
     playerMarker.setPopupContent(playerPopup(p));
     turnPlayer(p);
+    if (state.follow) map.panTo(toLatLng(p), { animate: true, duration: 0.25, easeLinearity: 1, noMoveStart: true });
     return;
   }
   playerLayer.clearLayers();
@@ -679,13 +681,24 @@ function setLayer(l) {
 }
 
 document.querySelectorAll('#layers button[data-layer]').forEach(b => b.onclick = () => setLayer(b.dataset.layer));
-$('#find-link').onclick = () => {
+// Link button: fly to Link. While the game is live it also keeps the map on him as he moves (the button stays lit),
+// until it is clicked again, the map is dragged, or the live position ends.
+function setFollow(on) {
+  state.follow = on;
+  $('#find-link').classList.toggle('on', on);
+  $('#find-link').title = t(on ? 'link.following' : state.live ? 'link.titleLive' : 'link.title');
+}
+function focusLink() {
   const p = playerPos();
   if (!p) return;
+  if (state.follow) { setFollow(false); return; }
   if (layerOf(p.y) !== state.layer) setLayer(layerOf(p.y));
   map.flyTo(toLatLng(p), Math.max(map.getZoom(), 1.5), { duration: 0.8 });
-  setTimeout(() => playerMarker && playerMarker.openPopup(), 900);
-};
+  if (state.live) map.once('moveend', () => { if (state.live) setFollow(true); });
+  else setTimeout(() => playerMarker && playerMarker.openPopup(), 900);
+}
+$('#find-link').onclick = focusLink;
+map.on('dragstart', () => setFollow(false));
 document.querySelectorAll('#mode button').forEach(b => {
   b.classList.toggle('on', b.dataset.mode === state.mode);
   b.onclick = () => {
@@ -793,34 +806,65 @@ async function loadGame() {
   try { state.game = await getJSON('/api/game'); } catch { state.game = null; }
   renderGame();
 }
+// The game chip at the top of the map, next to Link: ▶ Play (asks for savagewind.exe first when it isn't known yet),
+// Starting…, Load a save (the game answers, no save loaded) or Live (following; a click centres on Link).
+function gameChip() {
+  if (state.live) return 'live';
+  if (state.liveOn && state.liveReason === 'not_in_world') return 'open';
+  if (state.gameStarting) return 'starting';
+  return 'play';
+}
 function renderGame() {
   const g = state.game;
-  const idle = !state.live && state.liveReason !== 'not_in_world';
-  $('#play-game').hidden = REMOTE || !g || !g.exe || !state.liveOn || !idle || !!state.gameStarting;
-  $('#game-play').disabled = !g || !g.exe || !!state.gameStarting;
+  const chip = gameChip(), b = $('#play-game');
+  b.hidden = REMOTE;
+  b.dataset.state = chip;
+  b.disabled = chip === 'starting';
+  b.querySelector('span').textContent = t('game.chip.' + chip);
+  b.title = t('game.chipTitle.' + chip);
+  $('#game-play').disabled = !g || !!state.gameStarting;
   if (state.gameMsg) $('#game-msg').textContent = state.gameMsg;
   else $('#game-msg').textContent = !g ? '' : g.exe ? t('game.exe', { path: g.exe }) : t('game.none');
 }
+let toastTimer = null;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 8000);
+}
+async function chooseGame() {
+  state.gameMsg = t('setup.browseNote'); renderGame();
+  try { state.game = await post('/api/game/choose', {}); state.gameMsg = ''; }
+  catch (e) { state.gameMsg = tMsg(e.message); toast(state.gameMsg); }
+  renderGame();
+  return state.game && state.game.exe;
+}
 async function playGame() {
+  if (!state.game) await loadGame();
+  if (!(state.game && state.game.exe)) {   // not known yet: pick it once, then start
+    toast(t('game.pickFirst'));
+    if (!await chooseGame()) return;
+  }
   state.gameStarting = true; state.gameMsg = t('game.starting'); renderGame();
   try {
     state.game = await post('/api/game/start', {});
     if (!state.liveOn) { state.liveOn = true; store.set('live', true); $('#live-on').checked = true; }
+    toast(t('game.starting'));
     pollLive();
     setTimeout(() => { state.gameStarting = false; state.gameMsg = ''; renderGame(); }, 20000);   // time to load
   } catch (e) {
-    state.gameStarting = false; state.gameMsg = tMsg(e.message);
+    state.gameStarting = false; state.gameMsg = tMsg(e.message); toast(state.gameMsg);
   }
   renderGame();
 }
-$('#play-game').onclick = playGame;
-$('#game-play').onclick = playGame;
-$('#game-choose').onclick = async () => {
-  state.gameMsg = t('setup.browseNote'); renderGame();
-  try { state.game = await post('/api/game/choose', {}); state.gameMsg = ''; }
-  catch (e) { state.gameMsg = tMsg(e.message); }
-  renderGame();
+$('#play-game').onclick = () => {
+  const chip = gameChip();
+  if (chip === 'live') { if (!state.follow) focusLink(); }
+  else if (chip === 'open') toast(t('game.chipTitle.open'));
+  else if (chip === 'play') playGame();
 };
+$('#game-play').onclick = playGame;
+$('#game-choose').onclick = chooseGame;
 if (REMOTE) $('#game-play').closest('.game-row').hidden = true;
 
 // ---------- Live position switch (Settings)
