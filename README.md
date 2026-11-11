@@ -68,7 +68,8 @@ set "SAVAGEWIND_CONTROL=7777"
 start "" "%~dp0savagewind.exe"
 ```
 
-and start the game with it (`SAVAGEWIND_CONTROL=7777 ./savagewind` on Linux). The game then listens on `127.0.0.1`
+and start the game with it (on Linux: `SAVAGEWIND_CONTROL=7777 ./Savage_Wind-<version>.AppImage`, or pick the
+AppImage in *Choose game…* and use ▶ Play). The game then listens on `127.0.0.1`
 only, and the app asks it `pos` four times a second while the map is open: it only reads the position and never
 sends any other command. That port also unlocks Savage Wind's developer commands for any program on this PC, so
 only start the game this way when you want the live map. Switch following off in **⚙** → *Live position*. Another
@@ -112,3 +113,8 @@ Building a single-file app: `build_exe.bat` (Windows) or `sh build_linux.sh` (Li
 
 Placed actors are read from the 80 map sections (`Map/MainField/<A-J>-<1-8>_{Static,Dynamic}.smubin`, the DLC's
 copies first). Lynels come back after every Blood Moon, so they're shown but not tracked.
+
+## Thanks
+
+To mfnman1987 on Reddit for pointing out Savage Wind's `SAVAGEWIND_CONTROL` port, which the live position is built on.
+Their own live map prototype is at [botw-live-map](https://github.com/thomashodgkinson1987/botw-live-map).

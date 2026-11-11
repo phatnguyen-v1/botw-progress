@@ -713,7 +713,7 @@ def pick_game_file(initial=None):
     """The system's file picker for the game: savagewind.exe, or on Windows a .cmd/.bat that starts it (a dev build
     that needs its own PATH, say). Returns a path or None."""
     start = initial or str(Path.home())
-    title = f'Select {GAME_EXE}' + (' or the .cmd you start it with' if WINDOWS else '')
+    title = f'Select {GAME_EXE}' + (' or the .cmd you start it with' if WINDOWS else ' or its AppImage')
     with _dialog_lock:
         if not WINDOWS:
             shown, chosen = _desktop_folder_dialog(start, title, directory=False)
@@ -729,7 +729,8 @@ def pick_game_file(initial=None):
             raise ValueError(f'Could not open a file window here ({e}). Install zenity or kdialog.')
         root.withdraw()
         root.attributes('-topmost', True)
-        kinds = [('Savage Wind', 'savagewind.exe *.cmd *.bat'), ('All files', '*.*')] if WINDOWS else []
+        kinds = [('Savage Wind', 'savagewind.exe *.cmd *.bat'), ('All files', '*.*')] if WINDOWS else \
+            [('Savage Wind', 'savagewind *.AppImage'), ('All files', '*')]
         try:
             chosen = filedialog.askopenfilename(parent=root, initialdir=start, title=title, filetypes=kinds)
         finally:
@@ -739,13 +740,18 @@ def pick_game_file(initial=None):
 
 # ---------------------------------------------------------------- starting the game with the live map
 
-LAUNCHERS = ('.cmd', '.bat') if WINDOWS else ()
+LAUNCHERS = ('.cmd', '.bat') if WINDOWS else ('.appimage',)   # (Linux releases are an AppImage)
 
 
 def game_file_ok(path):
-    """Only Savage Wind's own binary, or (Windows) a .cmd/.bat launcher the player picked in the file window."""
+    """Only Savage Wind's own binary, a .cmd/.bat launcher (Windows) or its AppImage (Linux), picked in the file
+    window. An AppImage must be executable (chmod +x), as for starting it by hand."""
     p = Path(path)
-    return p.is_file() and (p.name.lower() in GAME_EXES or p.suffix.lower() in LAUNCHERS)
+    if not p.is_file():
+        return False
+    if not WINDOWS and p.suffix.lower() == '.appimage':
+        return 'savage' in p.name.lower() and os.access(p, os.X_OK)
+    return p.name.lower() in GAME_EXES or p.suffix.lower() in LAUNCHERS
 
 
 def game_process_running():
@@ -796,7 +802,8 @@ class Game:
         chosen = pick_game_file(str(exe.parent) if exe else (state.install or {}).get('path'))
         if chosen:
             if not game_file_ok(chosen):
-                raise ValueError(f'Pick {GAME_EXE}' + (' or a .cmd/.bat that starts it.' if WINDOWS else '.'))
+                raise ValueError(f'Pick {GAME_EXE}' + (' or a .cmd/.bat that starts it.' if WINDOWS
+                                                       else ' or its AppImage (made executable with chmod +x).'))
             with state.lock:
                 state.cfg['game_exe'] = str(Path(chosen))
                 save_config(state.cfg)

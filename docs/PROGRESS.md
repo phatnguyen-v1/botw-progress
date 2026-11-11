@@ -2,11 +2,12 @@
 
 Where the project stands, what was learned along the way, and what's next. Update it with each stage.
 
-## Status (2026-11-11)
+## Status (2026-11-12)
 
 | | |
 |---|---|
-| Version | 0.1.0: Windows exe and Linux binary built by GitHub Actions on the `v0.1.0` tag |
+| Version | 0.2.0: live position (Savage Wind's control port), ▶ Play, follow Link. Built by GitHub Actions on the `v0.2.0` tag |
+| 0.2.0 tested | Against the real game (`pos` from title screen to walking, Play from the map, a second start refused, the map closed with the game still running) and a stand-in TCP server; Windows only |
 | Tested on | Savage Wind (game 1.9.0 + DLC, English) with saves in `F:\Games\SavageWind`: from source in the browser, and the exe (app window, setup, save) from a Desktop shortcut |
 | Also in 0.1.0 | Spoiler-free mode and new-version notice, ported from totk-progress `cb4377f`; README screenshots taken with headless Edge from the running app |
 | Started from | [totk-progress](https://github.com/phatnguyen-v1/totk-progress) v1.6.0 (server, page, setup, phone view) |
@@ -17,6 +18,21 @@ Where the project stands, what was learned along the way, and what's next. Updat
 3. Korok puzzle types (the hidden Korok links to its puzzle through `LinkTagAnd` / `LinkTagOr` actors), memories
    (`IsGet_MemoryPhoto_NNN`, positions not found yet), Hestu.
 4. Interface translations (`web/i18n/<code>.json`; only English so far, game text is already in every language).
+
+## v0.2.0 (2026-11-12): live position
+
+- `server.LiveGame`: Savage Wind started with `SAVAGEWIND_CONTROL=<port>` answers text commands on 127.0.0.1, one JSON
+  line each; a connection that starts with an HTTP request is closed. Only `pos` is ever sent (the port also takes
+  developer commands). 4 Hz while a page polls `/api/live`, stops 6 s after the last one; 1.5 s timeout; backoff 1 to
+  10 s. A reply counts only with a `swr:` place line, and only the exact error `No world loaded` means no save yet:
+  TotK's recomp speaks the same protocol on the same default port.
+- `pos` gives Link's x/y/z (same frame as the save position: live == SavePos right after loading) and, in its
+  `place` line, the camera's yaw (0 along +z, 90 along +x). heading = 180 - yaw, clockwise from map north.
+- `server.Game`: ▶ Play starts the game with the variable in its environment only. The file is savagewind.exe in the
+  game folder or one picked in the file window (exe, .cmd/.bat, AppImage); the page never sends a path. Refused while
+  a Savage Wind runs; started detached.
+- Page: marker moved in place, glide off while the map moves; Link button follows; game chip (Play / Starting / Load
+  a save / Live).
 
 ## v0.1.0 (2026-11-11): first version
 
