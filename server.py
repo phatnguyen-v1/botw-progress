@@ -312,11 +312,15 @@ def parse_pos_reply(line):
         return {'live': False, 'in_world': False, 'reason': 'unreadable'}
     if not isinstance(d, dict):
         return {'live': False, 'in_world': False, 'reason': 'unreadable'}
+    # TotK's recomp speaks the same protocol and also defaults to port 7777: take only Savage Wind's own answers
+    # (its error before a save is loaded, and a place line starting with "swr:").
     if not d.get('ok'):
         err = str(d.get('error') or '')[:200]
-        return {'live': False, 'in_world': False, 'reason': 'not_in_world' if 'world' in err.lower() else 'unreadable',
+        return {'live': False, 'in_world': False, 'reason': 'not_in_world' if err == 'No world loaded' else 'unreadable',
                 'error': err}
     data = d.get('data')
+    if not isinstance(data, dict) or not str(data.get('place') or '').startswith('swr:'):
+        return {'live': False, 'in_world': False, 'reason': 'unreadable'}
     try:
         x, y, z = (float(data[k]) for k in ('x', 'y', 'z'))
     except (KeyError, TypeError, ValueError):
