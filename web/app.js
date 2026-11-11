@@ -323,25 +323,82 @@ function render() {
   renderPlayer();
 }
 
-// Link's position when the game last saved (PlayerStatus.SavePos), on the layer he's on.
+// Link's position: live from a running Savage Wind when its control port answers (/api/live, see pollLive), else
+// where the game last saved (PlayerStatus.SavePos).
 const playerLayer = L.layerGroup().addTo(map);
-let playerMarker = null;
+let playerMarker = null, playerMarkerKey = '';
+const playerPos = () => state.live || (state.progress && state.progress.player) || null;
+function playerPopup(p) {
+  const when = !state.live && state.progress && state.progress.mtime ? new Date(state.progress.mtime * 1000).toLocaleString(LOCALE) : '';
+  return `<div class="pop"><h3>${esc(t('link'))}</h3><div class="row">${esc(t(state.live ? 'player.whereLive' : 'player.where'))}</div>
+    ${when ? `<div class="row">${esc(t('player.saved', { when }))}</div>` : ''}<div class="row">x ${Math.round(p.x)} · y ${Math.round(p.y)} · z ${Math.round(p.z)}</div></div>`;
+}
 function renderPlayer() {
+  const p = playerPos();
+  $('#find-link').hidden = !p;
+  const key = p && layerOf(p.y) === state.layer ? (state.live ? 'live' : 'saved') : '';
+  if (key && key === playerMarkerKey && playerMarker) {   // same marker: just move it (live updates, 4 a second)
+    playerMarker.setLatLng(toLatLng(p));
+    playerMarker.setPopupContent(playerPopup(p));
+    turnPlayer(p);
+    return;
+  }
   playerLayer.clearLayers();
   playerMarker = null;
-  const p = state.progress && state.progress.player;
-  $('#find-link').hidden = !p;
-  if (!p || layerOf(p.y) !== state.layer) return;
+  playerMarkerKey = key;
+  if (!key) return;
   const s = 30;
   playerMarker = L.marker(toLatLng(p), {
-    icon: L.divIcon({ className: 'mk player', html: `<img src="${iconSrc('player')}" alt="">`,
+    icon: L.divIcon({ className: 'mk player' + (state.live ? ' live' : ''), html: `<img src="${iconSrc('player')}" alt="">`,
       iconSize: [s, s], iconAnchor: [s / 2, s / 2], popupAnchor: [0, -s / 2] }),
     zIndexOffset: 10000, keyboard: false,
   });
-  const when = state.progress.mtime ? new Date(state.progress.mtime * 1000).toLocaleString(LOCALE) : '';
-  playerMarker.bindPopup(`<div class="pop"><h3>${esc(t('link'))}</h3><div class="row">${esc(t('player.where'))}</div>
-    ${when ? `<div class="row">${esc(t('player.saved', { when }))}</div>` : ''}<div class="row">x ${Math.round(p.x)} · y ${Math.round(p.y)} · z ${Math.round(p.z)}</div></div>`);
+  playerMarker.bindPopup(playerPopup(p));
   playerLayer.addLayer(playerMarker);
+  playerTurn = null;
+  turnPlayer(p);
+}
+// The arrow points up (north) in the icon. Live, it turns the way the camera looks (heading: degrees clockwise from
+// north, from the yaw of Savage Wind's `pos`), which while playing is the way Link goes. The angle is kept unwrapped
+// so the short glide between updates never spins the long way round (359 -> 1 turns by 2 degrees). A save has no
+// facing: the arrow then points north.
+let playerTurn = null;
+function turnPlayer(p) {
+  const img = playerMarker && playerMarker.getElement() && playerMarker.getElement().querySelector('img');
+  if (!img) return;
+  if (typeof p.heading !== 'number') { img.style.transform = ''; playerTurn = null; return; }
+  if (playerTurn === null) playerTurn = p.heading;
+  else playerTurn += ((p.heading - playerTurn) % 360 + 540) % 360 - 180;
+  img.style.transform = `rotate(${playerTurn}deg)`;
+}
+
+// Live position. Savage Wind started with SAVAGEWIND_CONTROL=7777 answers `pos` on a local port; the server asks it
+// four times a second for /api/live. Fast polls here while it answers, slow ones while it doesn't (game closed or
+// started without the variable), and none while switched off.
+const LIVE_MS = 250, LIVE_IDLE_MS = 2000;
+state.liveOn = store.get('live', true);
+state.live = null;
+state.liveReason = 'missing';
+let liveTimer = null;
+function setLive(p, reason) {
+  const was = state.live;
+  state.live = p;
+  state.liveReason = p ? 'live' : reason || 'missing';
+  if (!!was !== !!p || (was && p && (was.x !== p.x || was.y !== p.y || was.z !== p.z || was.heading !== p.heading))) renderPlayer();
+  renderLiveStatus();
+}
+async function pollLive() {
+  clearTimeout(liveTimer);
+  if (!state.liveOn) { setLive(null, 'off'); return; }
+  try {
+    const r = await getJSON('/api/live');
+    setLive(r.live ? { x: r.x, y: r.y, z: r.z, heading: r.heading } : null, r.reason);
+  } catch { setLive(null, 'missing'); }
+  if (state.liveOn) liveTimer = setTimeout(pollLive, state.live ? LIVE_MS : LIVE_IDLE_MS);
+}
+function renderLiveStatus() {
+  const el = $('#live-msg');
+  if (el) el.textContent = t('live.status.' + state.liveReason);
 }
 
 function renderLegend() {
@@ -621,7 +678,7 @@ function setLayer(l) {
 
 document.querySelectorAll('#layers button[data-layer]').forEach(b => b.onclick = () => setLayer(b.dataset.layer));
 $('#find-link').onclick = () => {
-  const p = state.progress && state.progress.player;
+  const p = playerPos();
   if (!p) return;
   if (layerOf(p.y) !== state.layer) setLayer(layerOf(p.y));
   map.flyTo(toLatLng(p), Math.max(map.getZoom(), 1.5), { duration: 0.8 });
@@ -727,6 +784,15 @@ $('#update-on').onchange = async e => {
 };
 if (!REMOTE) { setTimeout(checkUpdate, 4000); setInterval(checkUpdate, 30 * 60 * 1000); }
 
+// ---------- Live position switch (Settings)
+$('#live-on').checked = state.liveOn;
+$('#live-on').onchange = e => {
+  state.liveOn = e.target.checked;
+  store.set('live', state.liveOn);
+  pollLive();
+};
+renderLiveStatus();
+
 // ---------- Open on your phone
 function renderLan(st) {
   // Settings section and the floating phone button's popup show the same thing
@@ -784,6 +850,7 @@ async function openSetup(firstRun) {
     setup.candidates = st.candidates || [];
     setup.current = st.ready && st.install ? st.install.path : null;
     $('#lan-step').hidden = firstRun;
+    $('#live-step').hidden = firstRun;
     if (!firstRun) getJSON('/api/lan').then(renderLan).catch(() => {});
     checkUpdate();
     renderLang(st.lang);
@@ -896,4 +963,5 @@ $('#quit').onclick = async () => {
     setStatus(t('status.error', { error: tMsg(e.message) }), 'err');
   }
   setTimeout(poll, POLL_MS);
+  pollLive();
 })();

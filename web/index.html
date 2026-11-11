@@ -126,6 +126,13 @@
       <div id="update-msg" class="muted small"></div>
     </div>
 
+    <div class="setup-step" id="live-step">
+      <h3 data-i18n="live.title">Live position</h3>
+      <label class="switch"><input type="checkbox" id="live-on"> <span data-i18n="live.switch">Follow Link live while you play</span></label>
+      <p class="muted small" data-i18n-html="live.hint">Needs Savage Wind started with <code>SAVAGEWIND_CONTROL=7777</code>. On Windows, start it from a <code>.cmd</code> file next to <code>savagewind.exe</code> with the lines <code>set "SAVAGEWIND_CONTROL=7777"</code> and <code>start "" savagewind.exe</code>. The game then answers on a local port (this PC only), and this app asks it where Link is four times a second. It only ever asks for the position and never changes anything in the game. The arrow turns the way the camera looks. Without it, the map shows where you were at the last save.</p>
+      <div id="live-msg" class="muted small"></div>
+    </div>
+
     <div class="setup-step" id="lan-step" hidden>
       <h3 data-i18n="share.title">Open on your phone</h3>
       <label class="switch"><input type="checkbox" id="lan-on"> <span data-i18n="lan.switch">Show the map on phones and tablets</span></label>

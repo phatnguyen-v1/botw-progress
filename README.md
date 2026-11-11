@@ -51,6 +51,22 @@ delete that folder to reset.
 **On your phone:** click the phone button at the bottom right of the map, *Turn on*, and scan the QR code. Only
 phones and tablets on the **same Wi-Fi or network** as your PC can open it. They get the same map, read-only.
 
+**Live position:** the map normally shows where Link was at the last save. Start Savage Wind with the environment
+variable `SAVAGEWIND_CONTROL=7777` and the arrow follows Link while you play, turned the way the camera looks. On
+Windows, put a file like `savagewind-live.cmd` next to `savagewind.exe`:
+
+```bat
+@echo off
+set "SAVAGEWIND_CONTROL=7777"
+start "" "%~dp0savagewind.exe"
+```
+
+and start the game with it (`SAVAGEWIND_CONTROL=7777 ./savagewind` on Linux). The game then listens on `127.0.0.1`
+only, and the app asks it `pos` four times a second while the map is open: it only reads the position and never
+sends any other command. That port also unlocks Savage Wind's developer commands for any program on this PC, so
+only start the game this way when you want the live map. Switch following off in **⚙** → *Live position*. Another
+port: `"savagewind_control_port": 7778` in the app's `config.json`.
+
 The map starts with Koroks, shrines, towers, Divine Beasts, Great Fairies and armor chests; turn on more in the
 legend. Your choices (legend, filters, tab) are kept by the app.
 

@@ -11,7 +11,9 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import shutil
+import socket
 import string
 import struct
 import subprocess
@@ -287,6 +289,137 @@ def save_config(cfg):
     CONFIG.write_text(json.dumps(cfg, indent=2), encoding='utf-8')
 
 
+# ---------------------------------------------------------------- live position
+
+LIVE_PORT = 7777        # Savage Wind's control port when it is started with SAVAGEWIND_CONTROL=7777
+LIVE_POLL_S = 0.25      # four times a second while the game answers
+LIVE_STALE_S = 2.0      # no good answer for this long: not live any more
+LIVE_IDLE_S = 6.0       # stop asking the game when no page has asked /api/live for this long
+LIVE_TIMEOUT_S = 1.5    # connect and reply timeout; a reply normally comes within one frame
+_YAW = re.compile(r'(?:^|\s)yaw=(-?\d+(?:\.\d+)?)(?:\s|$)')
+
+
+def parse_pos_reply(line):
+    """One reply line of Savage Wind's `pos` command -> /api/live fields.
+    {"ok":true,"data":{"x","y","z","stamina","place":"swr:1 x=.. y=.. z=.. yaw=.. pitch=.. hour=.."}} gives
+    {'live': True, 'in_world': True, 'x', 'y', 'z'[, 'yaw', 'heading']}; {"ok":false,"error":"No world loaded"}
+    (title screen, loading) gives {'live': False, 'in_world': False, 'reason': 'not_in_world', 'error': ...}.
+    The yaw is the camera's (Savage Wind: 0 looks along +z, 90 along +x), which during play is roughly the way
+    Link goes; heading turns it into degrees clockwise from map north (-z), like the TotK map's live file."""
+    try:
+        d = json.loads(line)
+    except ValueError:
+        return {'live': False, 'in_world': False, 'reason': 'unreadable'}
+    if not isinstance(d, dict):
+        return {'live': False, 'in_world': False, 'reason': 'unreadable'}
+    if not d.get('ok'):
+        err = str(d.get('error') or '')[:200]
+        return {'live': False, 'in_world': False, 'reason': 'not_in_world' if 'world' in err.lower() else 'unreadable',
+                'error': err}
+    data = d.get('data')
+    try:
+        x, y, z = (float(data[k]) for k in ('x', 'y', 'z'))
+    except (KeyError, TypeError, ValueError):
+        return {'live': False, 'in_world': False, 'reason': 'unreadable'}
+    if not all(abs(v) < 100000 for v in (x, y, z)):   # also rejects nan and inf
+        return {'live': False, 'in_world': False, 'reason': 'unreadable'}
+    out = {'live': True, 'in_world': True, 'x': x, 'y': y, 'z': z}
+    m = _YAW.search(str(data.get('place') or ''))
+    if m:
+        yaw = float(m.group(1))
+        if abs(yaw) <= 720:
+            out['yaw'] = yaw
+            out['heading'] = (180.0 - yaw) % 360
+    return out
+
+
+class LiveGame:
+    """Link's position right now, from a running Savage Wind's local control socket (127.0.0.1, only when the game
+    was started with SAVAGEWIND_CONTROL=<port>). Text in, one JSON line out. That port also takes developer
+    commands, so this only ever sends `pos`, which only reads. A thread asks four times a second while a page wants
+    the live position (it polls /api/live) and nothing at all otherwise; while the game isn't there it tries again
+    after 1, 2, 4 ... up to 10 seconds. A connection that stops answering is closed and opened anew."""
+    REQUEST = b'pos\n'   # the one command sent, ever
+
+    def __init__(self, port):
+        self.port = port
+        self.lock = threading.Lock()
+        self.wanted = 0.0          # monotonic time of the last /api/live
+        self.result = {'live': False, 'in_world': False, 'reason': 'missing'}
+        self.good_at = None        # monotonic time of the last position
+        self.seq = 0
+        self.thread = None
+
+    def status(self):
+        """The /api/live answer; starts the poller when it isn't running."""
+        with self.lock:
+            self.wanted = time.monotonic()
+            if not (self.thread and self.thread.is_alive()):
+                self.thread = threading.Thread(target=self._run, name='live-pos', daemon=True)
+                self.thread.start()
+            out = dict(self.result)
+            if out.get('live'):
+                age = time.monotonic() - self.good_at
+                if age > LIVE_STALE_S:
+                    out = {'live': False, 'in_world': False, 'reason': 'stale'}
+                else:
+                    out['age_ms'] = round(age * 1000)
+            out['port'] = self.port
+            return out
+
+    def _set(self, r):
+        with self.lock:
+            if r.get('live'):
+                self.seq += 1
+                r['seq'] = self.seq
+                r['t'] = round(time.time() * 1000)
+                self.good_at = time.monotonic()
+            elif r.get('reason') in ('missing', 'unreadable') and self.result.get('live') \
+                    and time.monotonic() - self.good_at < LIVE_STALE_S:
+                return   # one bad poll: the last position stands until it is stale
+            self.result = r
+
+    def _run(self):
+        sock, buf, backoff = None, b'', 1.0
+        try:
+            while True:
+                with self.lock:
+                    if time.monotonic() - self.wanted > LIVE_IDLE_S:
+                        self.thread = None   # (status() starts a new one)
+                        self.result = {'live': False, 'in_world': False, 'reason': 'missing'}
+                        return
+                started = time.monotonic()
+                try:
+                    if sock is None:
+                        sock = socket.create_connection(('127.0.0.1', self.port), timeout=LIVE_TIMEOUT_S)
+                        buf = b''
+                    sock.sendall(self.REQUEST)
+                    deadline = time.monotonic() + LIVE_TIMEOUT_S
+                    while b'\n' not in buf:
+                        left = deadline - time.monotonic()
+                        if left <= 0 or len(buf) > 65536:
+                            raise TimeoutError('no reply')
+                        sock.settimeout(left)
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            raise ConnectionError('closed')
+                        buf += chunk
+                    line, buf = buf.split(b'\n', 1)
+                    self._set(parse_pos_reply(line.decode('utf-8', 'replace')))
+                    backoff = 1.0
+                    wait = LIVE_POLL_S - (time.monotonic() - started)
+                except OSError:   # refused (game not running or no SAVAGEWIND_CONTROL), timed out, closed
+                    if sock is not None:
+                        sock.close()
+                        sock = None
+                    self._set({'live': False, 'in_world': False, 'reason': 'missing'})
+                    wait, backoff = backoff, min(backoff * 2, 10.0)
+                time.sleep(max(wait, 0.02))
+        finally:
+            if sock is not None:
+                sock.close()
+
+
 # ---------------------------------------------------------------- state
 
 class State:
@@ -299,6 +432,8 @@ class State:
         self.map_data = self.quests = None
         self.cache = {}
         self.job = {'running': False, 'progress': 0.0, 'message': '', 'error': None, 'done': False}
+        port = self.cfg.get('savagewind_control_port', LIVE_PORT)
+        self.live = LiveGame(port if isinstance(port, int) and 0 < port < 65536 else LIVE_PORT)
         self.reload()
 
     def reload(self):
@@ -388,7 +523,7 @@ class State:
         except Exception:
             traceback.print_exc()
 
-    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'mystery', 'updateSkip'}
+    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'mystery', 'updateSkip', 'live'}
 
     def set_prefs(self, values):
         """View settings of the page (legend, filters, layer, tab, ...), kept in config.json so they survive
@@ -718,6 +853,8 @@ def make_handler(state, server_ref, remote=False):
                     self.send_json(state.setup_status(with_candidates=q.get('scan', ['0'])[0] == '1'))
                 elif p in ('/api/slots', '/api/progress') and not state.ready():
                     self.send_json({'error': 'setup required', 'setup': True}, 409)
+                elif p == '/api/live':   # Link's position right now (Savage Wind's control port, `pos` only)
+                    self.send_json(state.live.status())
                 elif p == '/api/slots':
                     self.send_json({'save_dir': None if remote else str(state.save_dir), 'latest': state.latest_slot(),
                                     'slots': state.slots(),
@@ -748,7 +885,8 @@ def make_handler(state, server_ref, remote=False):
         def remote_get_allowed(self, p):
             """Phones and other devices on the network only read: the page, the map data and the progress."""
             if p.startswith('/api/'):
-                return p in ('/api/ping', '/api/setup', '/api/slots', '/api/progress', '/api/prefs', '/api/i18n')
+                return p in ('/api/ping', '/api/setup', '/api/slots', '/api/progress', '/api/prefs', '/api/i18n',
+                          '/api/live')
             return True
 
         def do_POST(self):
