@@ -164,6 +164,45 @@ def msbt(data):
     return {name: texts[idx] for name, idx in labels.items() if idx < len(texts)}
 
 
+def aamp(data):
+    """Objects of an AAMP v2 parameter file (little endian; .bshop shop lists, ...) as
+    {object name CRC32: {parameter name CRC32: value}}, from the root list and every list below it.
+    Only the parameter types the shop lists use are read (bool, f32, int, u32, strings); others are None."""
+    data = yaz0(data)
+    assert data[:4] == b'AAMP', 'not AAMP'
+    pio_off = struct.unpack_from('<I', data, 0x14)[0]
+    out = {}
+
+    def value(t, off):
+        if t == 0:
+            return bool(struct.unpack_from('<I', data, off)[0])
+        if t == 1:
+            return struct.unpack_from('<f', data, off)[0]
+        if t == 2:
+            return struct.unpack_from('<i', data, off)[0]
+        if t == 17:
+            return struct.unpack_from('<I', data, off)[0]
+        if t in (7, 8, 15, 20):
+            return data[off:data.index(b'\0', off)].decode('utf-8', 'replace')
+        return None
+
+    def plist(off):
+        _crc, lists_rel, n_lists, objs_rel, n_objs = struct.unpack_from('<IHHHH', data, off)
+        for i in range(n_objs):
+            o = off + objs_rel * 4 + i * 8
+            ocrc, params_rel, n_params = struct.unpack_from('<IHH', data, o)
+            params = out.setdefault(ocrc, {})
+            for j in range(n_params):
+                p = o + params_rel * 4 + j * 8
+                pcrc, word = struct.unpack_from('<II', data, p)
+                params[pcrc] = value(word >> 24, p + (word & 0xFFFFFF) * 4)
+        for i in range(n_lists):
+            plist(off + lists_rel * 4 + i * 12)
+
+    plist(0x30 + pio_off)
+    return out
+
+
 def byml(data):
     """Parse a BYML (v2-v4) document into Python objects."""
     data = yaz0(data)

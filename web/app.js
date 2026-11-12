@@ -31,6 +31,7 @@ const SERVER_PATTERNS = [
   [/^Could not open port (\d+) on ([^:]+): (.*)$/s, m => t('msg.port', { port: m[1], ip: m[2], error: m[3] })],
   [/^RuntimeError: (.*)$/s, m => tMsg(m[1])],
   [/^map data: /, () => tMsg('Finding shrines, Koroks and everything else in your game files…')],
+  [/^outfits: /, () => tMsg('Finding every outfit and where to get it…')],
   [/^could not read slot (\d+): (.*)$/s, m => t('msg.slot', { n: m[1], error: m[2] })],
 ];
 function tMsg(s) {
@@ -142,6 +143,9 @@ const state = {
   mystery: store.get('mystery', false),
   quests: null,      // definitions from /data/quests.json
   openQuest: null,
+  omode: store.get('omode', 'missing'),
+  outfits: null,     // definitions from /data/outfits.json
+  openOutfit: null,
 };
 // Layers added after the legend was saved start the way a new user would see them (most are on, the
 // ~1,200 treasure chests are off), instead of all showing because they aren't in the saved "off" list.
@@ -605,15 +609,149 @@ $('#quests').addEventListener('toggle', e => {
   const open = store.get('qopen', {}); open[d.dataset.cat] = d.open; store.set('qopen', open);
 }, true);
 
+// ---------- outfits ----------
+// Definitions from /data/outfits.json (build_outfits.py): sets of pieces, each with its upgrade levels (one actor
+// and IsGet_ flag per level, the materials each takes) and where to get it. The save gives, per piece,
+// [best level ever had, level carried now] (-1: none) and the material counts in the inventory.
+const outfitLayer = L.layerGroup().addTo(map);
+const pieces = () => (state.outfits || []).flatMap(s => s.pieces);
+const oState = p => (state.progress && state.progress.outfits && state.progress.outfits[p.id]) || [-1, -1];
+const maxLevel = p => p.levels.length - 1;
+const fairiesRestored = () => ((state.progress && state.progress.done.great_fairy) || []).filter(Boolean).length;
+function oStatus(p) {
+  const [ever, now] = oState(p);
+  if (ever < 0) return 'missing';
+  if (ever >= maxLevel(p) && maxLevel(p) > 0) return 'max';
+  return now < 0 ? 'stored' : 'have';
+}
+const OSTATUS = Object.fromEntries(['missing', 'have', 'stored', 'max'].map(k => [k, t('ost.' + k)]));
+const stars = (n, max) => max > 0 ? `<span class="stars">${'★'.repeat(Math.max(n, 0))}<i>${'★'.repeat(max - Math.max(n, 0))}</i></span>` : '';
+// The Adventure Log quest named after the piece (the DLC's EX treasure quests), if there is one
+// the piece's inventory picture from the game files (build_outfits.write_icons); ?v= changes after a rebuild
+const outfitImg = (p, cls) => p.icon ? `<img class="${cls}" src="/assets/outfiticons/${encodeURIComponent(p.id)}.webp?v=${state.outfitStamp || 0}" alt="" loading="lazy">` : `<span class="${cls} noimg"></span>`;
+const outfitQuest = p => (state.quests || []).find(q => q.name.includes(p.name) && q.category === 'side_quest');
+
+function sourceHtml(p, s, i) {
+  const go = s.points && s.points.length ? `<button class="goto" data-id="${esc(p.id)}" data-src="${i}">${esc(t('goto.outfit'))}</button>` : '';
+  let main = '', sub = [];
+  if (s.type === 'shop') {
+    main = s.place ? t('outfit.shop', { who: s.who, place: s.place }) : t('outfit.shopNoPlace', { who: s.who });
+    if (s.price) sub.push(t('outfit.price', { n: s.price.toLocaleString(LOCALE) }));
+    if (s.rebuy) sub.push(t('outfit.rebuy'));
+  } else if (s.type === 'chest') main = t('outfit.chest', { place: s.place });
+  else if (s.type === 'shrine') main = t('outfit.shrine', { place: s.place });
+  else if (s.type === 'amiibo') main = t('outfit.amiibo', { name: s.text });
+  else main = s.text;
+  return `<div class="src"><span>${esc(main)}${sub.length ? `<br><span class="sub">${esc(sub.join(' · '))}</span>` : ''}</span>${go}</div>`;
+}
+
+function upgradesHtml(p) {
+  if (maxLevel(p) < 1) return '';
+  const [ever] = oState(p);
+  const have = (state.progress && state.progress.materials) || {};
+  const fairies = fairiesRestored();
+  let html = `<div class="sec">${esc(t('outfit.upgrades'))}</div>`;
+  p.levels.forEach((lv, i) => {
+    if (!i) return;
+    const done = ever >= i;
+    const mats = lv.mats.map(([id, name, n]) => {
+      const c = have[id] || 0;
+      return done ? `${esc(name)} ×${n}` : `<span class="${c >= n ? 'ok' : 'short'}">${esc(name)} ${c}/${n}</span>`;
+    }).join(', ');
+    const fairy = done ? '' : `<span class="fairy">${esc(tn('outfit.fairiesNeeded', i, { have: fairies }))}</span>`;
+    html += `<div class="lv ${done ? 'done' : ''}"><b>${esc(t('outfit.level', { n: i }))}</b>${done ? `${esc(t('outfit.levelDone'))} · ` : ''}${mats}${fairy}</div>`;
+  });
+  return html;
+}
+
+function renderOutfits() {
+  const el = $('#outfits');
+  if (!state.outfits) { el.innerHTML = `<div class="empty">${t('outfits.noData')}</div>`; $('#osummary').innerHTML = ''; return; }
+  const all = pieces();
+  const q = state.tab === 'outfits' ? state.search.trim().toLowerCase() : '';
+  const haveN = all.filter(p => oState(p)[0] >= 0).length;
+  const upg = all.filter(p => maxLevel(p) > 0);
+  const setsDone = state.outfits.filter(s => s.pieces.every(p => oState(p)[0] >= 0)).length;
+  const small = n => `<small style="color:var(--muted);font-size:12px"> / ${n}</small>`;
+  $('#osummary').innerHTML = [[t('osum.have'), `${haveN}${small(all.length)}`], [t('osum.sets'), `${setsDone}${small(state.outfits.length)}`],
+    [t('osum.max'), `${upg.filter(p => oStatus(p) === 'max').length}${small(upg.length)}`], [t('osum.fairies'), `${fairiesRestored()}${small(4)}`]]
+    .map(([l, n]) => `<div class="big"><b>${n}</b><span>${esc(l)}</span></div>`).join('');
+  const open = store.get('oopen', {});
+  let html = '', shown = 0;
+  for (const set of state.outfits) {
+    const list = set.pieces.filter(p => {
+      const st = oStatus(p);
+      if (state.omode === 'missing' && st !== 'missing') return false;
+      if (state.omode === 'have' && st === 'missing') return false;
+      if (state.omode === 'upgrade' && !((st === 'have' || st === 'stored') && maxLevel(p) > 0)) return false;
+      if (!q) return true;
+      const hay = [p.name, set.name, p.effect, ...p.sources.map(s => `${s.who || ''} ${s.place || ''} ${s.text || ''}`)].join(' ');
+      return hay.toLowerCase().includes(q);
+    });
+    if (!list.length) continue;
+    shown += list.length;
+    const got = set.pieces.filter(p => oState(p)[0] >= 0).length;
+    html += `<details class="qgroup" data-set="${esc(set.name)}" ${open[set.name] !== false ? 'open' : ''}><summary>${esc(set.name)}<span class="n">${esc(t('outfits.groupHave', { have: got, all: set.pieces.length }))}</span></summary>`;
+    for (const p of list) {
+      const st = oStatus(p), [ever, now] = oState(p);
+      const quest = outfitQuest(p);
+      const meta = [t('oslot.' + p.slot), p.effect, p.bonus ? t('outfit.bonus') : ''].filter(Boolean).join(' · ');
+      const carried = now > 0 ? t('outfit.carried', { n: now }) : st === 'stored' && maxLevel(p) > 0 ? t('outfit.everHad', { n: ever }) : '';
+      html += `<div class="quest outfit ${st} ${state.openOutfit === p.id ? 'open' : ''}" data-id="${esc(p.id)}">
+        <div class="orow">${outfitImg(p, 'oimg')}<div class="ocol">
+        <div class="t"><b>${esc(p.name)}</b>${stars(Math.max(ever, 0), maxLevel(p))}<span class="chip ${st}">${esc(OSTATUS[st])}</span></div>
+        <div class="meta">${esc(meta)}</div></div></div>
+        <div class="body">${p.icon ? outfitImg(p, 'obig') : ''}${carried ? `<div class="need">${esc(carried)}</div>` : ''}
+          <div class="sec">${esc(t('outfit.howTo'))}</div>
+          ${p.sources.length ? p.sources.map((s, i) => sourceHtml(p, s, i)).join('') : `<div class="src">${esc(t('outfit.unknown'))}</div>`}
+          ${quest ? `<div class="src">${esc(t('outfit.quest', { quest: quest.name, status: QSTATUS[qStatus(quest)[0]] }))}</div>` : ''}
+          ${upgradesHtml(p)}</div></div>`;
+    }
+    html += '</details>';
+  }
+  el.innerHTML = shown ? html : `<div class="empty">${esc(q ? t('outfits.noneSearch') : t('outfits.none'))}</div>`;
+}
+
+function showOutfitSource(id, i) {
+  const p = pieces().find(x => x.id === id);
+  const s = p && p.sources[i];
+  if (!s || !s.points || !s.points.length) return;
+  outfitLayer.clearLayers();
+  const where = s.type === 'shop' ? (s.place ? t('outfit.shop', { who: s.who, place: s.place }) : t('outfit.shopNoPlace', { who: s.who }))
+    : s.type === 'chest' ? t('outfit.chest', { place: s.place }) : s.type === 'shrine' ? t('outfit.shrine', { place: s.place }) : (s.place || s.text || '');
+  for (const pt of s.points) {
+    const m = L.marker(ptLatLng(pt), { icon: L.divIcon({ className: 'omk', html: '★', iconSize: [22, 22] }), zIndexOffset: 1100 });
+    m.bindPopup(`<div class="pop opop">${outfitImg(p, 'pimg')}<div><h3>${esc(p.name)}</h3><div class="row">${esc(where)}</div></div></div>`);
+    outfitLayer.addLayer(m);
+  }
+  if (s.points.length === 1) map.flyTo(ptLatLng(s.points[0]), Math.max(map.getZoom(), 1.5), { duration: 0.6 });
+  else map.flyToBounds(L.latLngBounds(s.points.map(ptLatLng)).pad(0.3), { duration: 0.6, maxZoom: 1.5 });
+  if (window.innerWidth <= 760) document.body.classList.remove('panel-open');
+}
+
+$('#outfits').addEventListener('click', e => {
+  const go = e.target.closest('.goto');
+  if (go) { e.stopPropagation(); showOutfitSource(go.dataset.id, Number(go.dataset.src)); return; }
+  const card = e.target.closest('.outfit');
+  if (card) { state.openOutfit = state.openOutfit === card.dataset.id ? null : card.dataset.id; renderOutfits(); }
+});
+$('#outfits').addEventListener('toggle', e => {
+  const d = e.target.closest('.qgroup');
+  if (!d) return;
+  const open = store.get('oopen', {}); open[d.dataset.set] = d.open; store.set('oopen', open);
+}, true);
+
 function setTab(tab) {
   state.tab = tab; store.set('tab', tab);
   document.body.classList.toggle('tab-quests', tab === 'quests');
+  document.body.classList.toggle('tab-outfits', tab === 'outfits');
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  $('#search').placeholder = tab === 'quests' ? t('search.quests') : t('search.map');
+  $('#search').placeholder = t(tab === 'quests' ? 'search.quests' : tab === 'outfits' ? 'search.outfits' : 'search.map');
   $('#search').value = '';
   state.search = '';
   render();
   renderQuests();
+  renderOutfits();
 }
 
 function setStatus(text, cls) { const s = $('#status'); s.textContent = text; s.className = 'status' + (cls ? ' ' + cls : ''); }
@@ -642,7 +780,7 @@ async function loadProgress() {
   const p = await getJSON('/api/progress?slot=' + encodeURIComponent(state.slot));
   state.progress = p;
   state.lastMtime = p.mtime;
-  renderSummary(); renderLegend(); render(); renderQuests(); renderQuestTargets();
+  renderSummary(); renderLegend(); render(); renderQuests(); renderQuestTargets(); renderOutfits();
   setStatus(t('status.live', { n: p.slot, time: new Date(p.mtime * 1000).toLocaleTimeString(LOCALE) }), 'live');
 }
 
@@ -713,7 +851,7 @@ document.querySelectorAll('#mode button').forEach(b => {
 });
 $('#slot').onchange = e => { state.slot = e.target.value; store.set('slot', state.slot); loadProgress().catch(err => setStatus(tMsg(err.message), 'err')); };
 let searchTimer;
-$('#search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = e.target.value; render(); renderQuests(); }, 150); };
+$('#search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = e.target.value; render(); renderQuests(); renderOutfits(); }, 150); };
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 document.querySelectorAll('#qmode button').forEach(b => {
   b.classList.toggle('on', b.dataset.q === state.qmode);
@@ -721,6 +859,14 @@ document.querySelectorAll('#qmode button').forEach(b => {
     state.qmode = b.dataset.q; store.set('qmode', state.qmode);
     document.querySelectorAll('#qmode button').forEach(x => x.classList.toggle('on', x === b));
     renderQuests();
+  };
+});
+document.querySelectorAll('#omode button').forEach(b => {
+  b.classList.toggle('on', b.dataset.o === state.omode);
+  b.onclick = () => {
+    state.omode = b.dataset.o; store.set('omode', state.omode);
+    document.querySelectorAll('#omode button').forEach(x => x.classList.toggle('on', x === b));
+    renderOutfits();
   };
 });
 $('#qtargets').checked = state.qtargets;
@@ -1042,6 +1188,7 @@ $('#quit').onclick = async () => {
     await setupBaseMaps();
     state.data = await getJSON('/data/map_data.json');
     try { state.quests = (await getJSON('/data/quests.json')).quests; } catch { state.quests = null; }
+    try { const o = await getJSON('/data/outfits.json'); state.outfits = o.sets; state.outfitStamp = o.built || 0; } catch { state.outfits = null; }
     setTab(state.tab);
     setLayer(state.layer);
     renderLegend(); renderSummary();

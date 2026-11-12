@@ -33,7 +33,7 @@ from paths import APP_NAME, ASSETS, CONFIG, DATA, FROZEN, GAME_EXE, LOG, VERSION
 
 APP_ID = 'botw-progress-map'
 # Bump when build_mapdata's output changes: existing installs then rebuild the map data (not the tiles).
-DATA_VERSION = 2
+DATA_VERSION = 4   # 3: outfits.json, 4: outfit pictures
 
 
 def have_assets():
@@ -433,7 +433,7 @@ class State:
         self.save_override = save_override
         self.install = None
         self.save_dir = None
-        self.map_data = self.quests = None
+        self.map_data = self.quests = self.outfits = None
         self.cache = {}
         self.job = {'running': False, 'progress': 0.0, 'message': '', 'error': None, 'done': False}
         port = self.cfg.get('savagewind_control_port', LIVE_PORT)
@@ -450,6 +450,8 @@ class State:
         qfile = ASSETS / 'quests.json'
         qdata = json.loads(qfile.read_text(encoding='utf-8')) if qfile.is_file() else {}
         self.quests = qdata.get('quests')
+        ofile = ASSETS / 'outfits.json'
+        self.outfits = json.loads(ofile.read_text(encoding='utf-8')).get('sets') if ofile.is_file() else None
         with self.lock:
             self.cache.clear()
 
@@ -461,7 +463,7 @@ class State:
             'version': VERSION, 'ready': self.ready(), 'install': self.install,
             'save_override': self.save_override, 'data_dir': str(DATA),
             'game_exe': GAME_EXE, 'platform': 'windows' if WINDOWS else sys.platform,
-            'assets': {'map': have_assets(), 'quests': self.quests is not None},
+            'assets': {'map': have_assets(), 'quests': self.quests is not None, 'outfits': self.outfits is not None},
             'job': dict(self.job),
             'lang': self.lang_info(),
         }
@@ -527,7 +529,8 @@ class State:
         except Exception:
             traceback.print_exc()
 
-    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'mystery', 'updateSkip', 'live'}
+    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'omode', 'oopen',
+                'mystery', 'updateSkip', 'live'}
 
     def set_prefs(self, values):
         """View settings of the page (legend, filters, layer, tab, ...), kept in config.json so they survive
@@ -587,13 +590,21 @@ class State:
             self.build_icons(rf)
             stage(0.6, 0.8)(0, 'Finding shrines, Koroks and everything else in your game files…')
             build_mapdata.build(romfs, ASSETS / 'map_data.json', lang=lang, log=lambda m: stage(0.6, 0.8)(0.5, m[:80]))
-            stage(0.8, 1)(0, 'Reading the quest list from your game files…')
+            stage(0.8, 0.9)(0, 'Reading the quest list from your game files…')
+            objs = build_mapdata.placed_actors(rf, log=lambda m: None)   # for the quests and the outfits
             try:
                 import build_quests
-                build_quests.build(romfs, ASSETS / 'quests.json', lang=lang, log=lambda m: None)
+                build_quests.build(romfs, ASSETS / 'quests.json', lang=lang, log=lambda m: None, objs=objs)
             except Exception as e:  # the map still works without quests
                 traceback.print_exc()
                 job['warning'] = f'Quest list not built: {e}'
+            stage(0.9, 1)(0, 'Finding every outfit and where to get it…')
+            try:
+                import build_outfits
+                build_outfits.build(romfs, ASSETS / 'outfits.json', lang=lang, log=print, objs=objs)
+            except Exception as e:  # the map and quests still work without outfits
+                traceback.print_exc()
+                job['warning'] = (job.get('warning', '') + f' Outfit list not built: {e}').strip()
             # written last: a build cut short is redone on the next start
             (ASSETS / 'source.json').write_text(json.dumps({'map': 'game', 'data_version': DATA_VERSION, 'lang': lang,
                                                             'built': time.time()}))
@@ -637,7 +648,7 @@ class State:
         last = None
         for _ in range(5):  # the game may be writing the file: retry on a torn read
             try:
-                result = savefile.parse(f, self.map_data, self.quests)
+                result = savefile.parse(f, self.map_data, self.quests, self.outfits)
                 break
             except (savefile.SaveError, struct.error, OSError) as e:
                 last = e
@@ -1011,6 +1022,11 @@ def make_handler(state, server_ref, remote=False):
                         self.send_json({'error': 'quest list not built'}, 404)
                     else:
                         self.send_file(ASSETS / 'quests.json')
+                elif p == '/data/outfits.json':
+                    if state.outfits is None:
+                        self.send_json({'error': 'outfit list not built'}, 404)
+                    else:
+                        self.send_file(ASSETS / 'outfits.json')
                 elif p.startswith('/assets/'):
                     self.send_file(ASSETS / p[len('/assets/'):], cache=True)
                 elif p in ('/', '/index.html'):

@@ -13,6 +13,12 @@ their status (in progress, not started, not available yet, done), the quest give
 text of the step you're on. "Show on map" jumps to where the quest wants you to go, and active quest targets can be
 shown on the map (gold). "Where to start quests" puts a blue **!** where the quest giver stands.
 
+The **Outfits** tab lists all 107 armor pieces, set by set, with which ones you've found, the upgrade level (★) you
+have, and how to get the rest: the shopkeeper and town that sell it (and the price), the treasure chest or shrine it's
+in, or the quest or amiibo that gives it. "Show on map" marks the shop or chest. For upgrades it shows what each
+Great Fairy level takes, with how many of each material you carry. Shops, chests and upgrade materials come from
+your own game files; quest and amiibo rewards from a short hand-written list.
+
 | Quests tab | The whole map |
 |---|---|
 | ![Quests tab: what's left to do, with the quest giver](docs/screenshots/quests.webp) | ![Zoomed out: everything still missing in Hyrule](docs/screenshots/overview.webp) |

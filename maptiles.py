@@ -71,6 +71,14 @@ def decode_texture(data, i):
         bw = bh = 4
         bpp, fn = BC_FORMATS[kind]
         decode = lambda raw: getattr(texture2ddecoder, fn)(raw, width, height)
+    elif kind == 0x0B:   # R8G8B8A8, uncompressed (the inventory icons, UI/StockItem/*.sbitemico)
+        bw = bh = 1
+        bpp = 4
+
+        def decode(raw):
+            bgra = bytearray(raw)
+            bgra[0::4], bgra[2::4] = raw[2::4], raw[0::4]
+            return bytes(bgra)
     else:
         raise ValueError(f'unsupported texture format 0x{fmt:04x}')
     raw = deswizzle(data[mip0:mip0 + image_size], _div_up(width, bw), _div_up(height, bh), bpp, layout & 7)

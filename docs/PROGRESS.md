@@ -6,7 +6,9 @@ Where the project stands, what was learned along the way, and what's next. Updat
 
 | | |
 |---|---|
-| Version | 0.2.0: live position (Savage Wind's control port), ▶ Play, follow Link. Built by GitHub Actions on the `v0.2.0` tag |
+| Version | 0.3.0: Outfits tab (every armor piece, its picture, upgrades and where to get it). Built by GitHub Actions on the `v0.3.0` tag |
+| 0.3.0 tested | From source in the browser and a local exe against the owner's save, and the outfit reader against the public 100% save (83/107 pieces, 46 fully upgraded) |
+| 0.2.0 | Live position (Savage Wind's control port), ▶ Play, follow Link |
 | 0.2.0 tested | Against the real game (`pos` from title screen to walking, Play from the map, a second start refused, the map closed with the game still running) and a stand-in TCP server; Windows only |
 | Tested on | Savage Wind (game 1.9.0 + DLC, English) with saves in `F:\Games\SavageWind`: from source in the browser, and the exe (app window, setup, save) from a Desktop shortcut |
 | Also in 0.1.0 | Spoiler-free mode and new-version notice, ported from totk-progress `cb4377f`; README screenshots taken with headless Edge from the running app |
@@ -15,9 +17,29 @@ Where the project stands, what was learned along the way, and what's next. Updat
 ### Next up
 1. Check more saves (later in the game: Divine Beasts, Great Fairies, bosses, quest steps with branches).
 2. Try the Linux binary on a real desktop / Steam Deck (CI only runs a start-up smoke test).
-3. Korok puzzle types (the hidden Korok links to its puzzle through `LinkTagAnd` / `LinkTagOr` actors), memories
+3. Hyrule Compendium tab (385 entries, works like the outfits). Korok puzzle types (the hidden Korok links to its puzzle through `LinkTagAnd` / `LinkTagOr` actors), memories
    (`IsGet_MemoryPhoto_NNN`, positions not found yet), Hestu.
 4. Interface translations (`web/i18n/<code>.json`; only English so far, game text is already in every language).
+
+## v0.3.0 (2026-11-12): Outfits tab
+
+- `build_outfits.py` -> `assets/outfits.json` (`DATA_VERSION` 3 rebuilds it on existing installs, ~15 s with the
+  shop scan). Armor = `Actor/ActorInfo.product.sbyml` actors with profile `ArmorHead/Upper/Lower`; each Great Fairy
+  level is its own actor (`armorNextRankName`), with the materials for that level in `normal0ItemName0N/Num0N`.
+  107 pieces once upgrades, hood-down `_B` variants, the unnamed `Armor_5xx` test pieces and the second Snow Boots
+  (`Armor_140_Lower`) are left out. Sets: `seriesArmorSeriesType` (names hand-written; the game has none).
+- Pictures: `UI/StockItem/<actor>.sbitemico` (Yaz0 BFRES, one 144 px R8G8B8A8 sRGB texture, format 0x0B06, now
+  decoded by `maptiles.decode_texture`; dyed colours are `<actor>.NN`, left out) -> `assets/outfiticons/<id>.webp`
+  at 96 px, 700 KB for all 107. `DATA_VERSION` 4.
+- Save: `IsGet_<actor>` per level (kept after selling), inventory `PorchItem` (64-byte strings) with counts in
+  `PorchItem_Value1`.
+- Where to get it: the `.bshop` shop lists (AAMP, new reader `gamefiles.aamp`; `ItemLookGetFlg` = sold only once
+  found, e.g. Rhondson, Granté, Natie), armor shop mannequins (`Mannequin_*` `EquipArmorName1`, `ForSale` link to the
+  shopkeeper), `TBox_*` chests on the map and in `Pack/DungeonNNN.pack` shrines. `Npc_DressFairy_0N` shop = ★N+1.
+  Quest gifts, amiibo and DLC hints in `build_outfits.HINTS`. No source found for Zora Greaves and Sheik's Mask.
+- Checked against the owner's slot 5: 5 pieces found (= the armor in the inventory), material counts as in game.
+  Public 100% save, slot 0: 83 of 107 found, 46 of 71 fully upgraded; missing only the amiibo sets, the Divine
+  Helms, the Lynel Mask and Sheik's Mask (none needed for 100%). Slot 6 (26 h): 19.
 
 ## v0.2.0 (2026-11-12): live position
 

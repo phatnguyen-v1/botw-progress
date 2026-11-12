@@ -19,6 +19,7 @@
     <div class="tabs" id="tabs" role="tablist">
       <button data-tab="map" class="on" role="tab" data-i18n="tab.map">Map</button>
       <button data-tab="quests" role="tab" data-i18n="tab.quests">Quests</button>
+      <button data-tab="outfits" role="tab" data-i18n="tab.outfits">Outfits</button>
     </div>
   </header>
 
@@ -38,6 +39,12 @@
       <button data-q="done" data-i18n="qmode.done">Done</button>
       <button data-q="all" data-i18n="qmode.all">All</button>
     </div>
+    <div class="seg seg4 view-outfits" id="omode" role="radiogroup" aria-label="Which outfits" data-i18n-aria-label="omode.aria">
+      <button data-o="missing" class="on" data-i18n="omode.missing">Missing</button>
+      <button data-o="have" data-i18n="omode.have">Have</button>
+      <button data-o="upgrade" data-i18n="omode.upgrade">Upgrade</button>
+      <button data-o="all" data-i18n="omode.all">All</button>
+    </div>
     <input id="search" type="search" placeholder="Search names…" data-i18n-placeholder="search.map" autocomplete="off">
   </section>
 
@@ -47,6 +54,9 @@
   <section id="qsummary" class="summary view-quests"></section>
   <section id="quests" class="quests view-quests"></section>
 
+  <section id="osummary" class="summary view-outfits"></section>
+  <section id="outfits" class="quests outfits view-outfits"></section>
+
   <footer class="panel-foot view-map">
     <button id="all-on" class="link" data-i18n="legend.showAll">Show all</button>
     <button id="all-off" class="link" data-i18n="legend.hideAll">Hide all</button>
@@ -55,6 +65,9 @@
   <footer class="panel-foot view-quests">
     <label class="check"><input type="checkbox" id="qtargets" checked> <i class="dot gold"></i> <span data-i18n="quests.targets">Active quest targets on map</span></label>
     <label class="check"><input type="checkbox" id="qstarts"> <i class="dot blue"></i> <span data-i18n="quests.starts">Where to start quests</span></label>
+  </footer>
+  <footer class="panel-foot view-outfits">
+    <span class="hint" data-i18n="outfits.hint">★ = upgrade level.</span>
   </footer>
 </aside>
 

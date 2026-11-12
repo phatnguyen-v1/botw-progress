@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = 'BotWProgressMap'
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 FROZEN = getattr(sys, 'frozen', False)
 HERE = Path(__file__).resolve().parent
 BUNDLE = Path(getattr(sys, '_MEIPASS', HERE))

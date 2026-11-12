@@ -118,7 +118,39 @@ def parse_quests(table, quests):
     return out
 
 
-def parse(path, map_data, quests=None):
+def porch(table):
+    """The inventory: [(item actor, value)] in order. PorchItem is an array of 64-byte strings; PorchItem_Value1 the
+    count for materials (durability for weapons, nothing much for armor)."""
+    raw = table.get(crc('PorchItem')) or []
+    blob = b''.join(struct.pack('<I', x) for x in raw)
+    names = [blob[i:i + 64].split(b'\0', 1)[0].decode('utf-8', 'replace') for i in range(0, len(blob), 64)]
+    values = table.get(crc('PorchItem_Value1')) or []
+    return [(n, values[i] if i < len(values) else 0) for i, n in enumerate(names) if n]
+
+
+def parse_outfits(table, outfits):
+    """{piece id: [best level ever had (-1: never), best level in the inventory now (-1: not carried)]} and the
+    counts of the materials in the inventory ({item actor: count}).
+
+    Each upgrade level is its own actor with its own IsGet_ flag (set when Link first gets it, kept when sold).
+    """
+    inv = porch(table)
+    carried = {n for n, _ in inv}
+    mats = {}
+    for n, v in inv:
+        if not n.startswith(('Armor_', 'Weapon_')) and v < 0x80000000:
+            mats[n] = mats.get(n, 0) + v
+    out = {}
+    for s in outfits:
+        for p in s['pieces']:
+            ever = max((i for i, lv in enumerate(p['levels']) if lv['flag'] is not None and _first(table, lv['flag'])),
+                       default=-1)
+            now = max((i for i, lv in enumerate(p['levels']) if lv['actor'] in carried), default=-1)
+            out[p['id']] = [max(ever, now), now]
+    return out, mats
+
+
+def parse(path, map_data, quests=None, outfits=None):
     """{done: {category: [bool per object, in map_data order]}, ...} plus metadata."""
     buf = Path(path).read_bytes()
     table = read_table(buf)
@@ -145,4 +177,6 @@ def parse(path, map_data, quests=None):
     }
     if quests:
         result['quests'] = parse_quests(table, quests)
+    if outfits:
+        result['outfits'], result['materials'] = parse_outfits(table, outfits)
     return result
