@@ -2,11 +2,13 @@
 
 Where the project stands, what was learned along the way, and what's next. Update it with each stage.
 
-## Status (2026-11-12)
+## Status (2026-11-13)
 
 | | |
 |---|---|
-| Version | 0.3.0: Outfits tab (every armor piece, its picture, upgrades and where to get it). Built by GitHub Actions on the `v0.3.0` tag |
+| Version | 0.3.1: map tiles sent as `image/webp` (download managers such as IDM no longer grab them). Built by GitHub Actions on the `v0.3.1` tag |
+| 0.3.1 tested | Local exe: tiles, outfit pictures, JS and HTML come back with the right Content-Type |
+| 0.3.0 | Outfits tab (every armor piece, its picture, upgrades and where to get it) |
 | 0.3.0 tested | From source in the browser and a local exe against the owner's save, and the outfit reader against the public 100% save (83/107 pieces, 46 fully upgraded) |
 | 0.2.0 | Live position (Savage Wind's control port), ▶ Play, follow Link |
 | 0.2.0 tested | Against the real game (`pos` from title screen to walking, Play from the map, a second start refused, the map closed with the game still running) and a stand-in TCP server; Windows only |
@@ -20,6 +22,13 @@ Where the project stands, what was learned along the way, and what's next. Updat
 3. Hyrule Compendium tab (385 entries, works like the outfits). Korok puzzle types (the hidden Korok links to its puzzle through `LinkTagAnd` / `LinkTagOr` actors), memories
    (`IsGet_MemoryPhoto_NNN`, positions not found yet), Hestu.
 4. Interface translations (`web/i18n/<code>.json`; only English so far, game text is already in every language).
+
+## v0.3.1 (2026-11-13): map tiles as image/webp
+
+- `send_file` takes the type from a fixed table (`CONTENT_TYPES`) for the files the page loads, then
+  `mimetypes`: on Windows that asks the registry, which often has no `.webp` (Python itself only knows it from
+  3.13 on), so tiles went out as `application/octet-stream` and IDM took them for downloads. Same fix as
+  totk-progress PR #4 (eUnisk).
 
 ## v0.3.0 (2026-11-12): Outfits tab
 
