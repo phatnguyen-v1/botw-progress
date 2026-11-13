@@ -32,6 +32,14 @@ import savefile
 from paths import APP_NAME, ASSETS, CONFIG, DATA, FROZEN, GAME_EXE, LOG, VERSION, WEB, WINDOWS
 
 APP_ID = 'botw-progress-map'
+# The types of the files the page loads, fixed here instead of guessed: mimetypes asks the Windows registry,
+# which often doesn't know .webp (and Python only knows it from 3.13 on), so the map tiles were sent as
+# application/octet-stream. Download managers such as IDM then take each tile for a file download.
+CONTENT_TYPES = {
+    '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json', '.webp': 'image/webp', '.png': 'image/png', '.svg': 'image/svg+xml',
+    '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
+}
 # Bump when build_mapdata's output changes: existing installs then rebuild the map data (not the tiles).
 DATA_VERSION = 4   # 3: outfits.json, 4: outfit pictures
 
@@ -965,7 +973,7 @@ def make_handler(state, server_ref, remote=False):
                 self.send_error(404)
                 return
             data = path.read_bytes()
-            ctype = mimetypes.guess_type(path.name)[0] or 'application/octet-stream'
+            ctype = CONTENT_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or 'application/octet-stream'
             self.send_response(200)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(data)))
